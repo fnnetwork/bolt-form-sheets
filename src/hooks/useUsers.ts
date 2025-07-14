@@ -1,4 +1,5 @@
-import { supabase } from '../lib/supabase';
+import { useState, useEffect } from 'react';
+import { googleSheetsAPI } from '../lib/googleSheets';
 import { User } from '../types';
 
 export const useUsers = () => {
@@ -9,18 +10,9 @@ export const useUsers = () => {
   const loadUsers = async () => {
     try {
       setLoading(true);
-      console.log('🔄 Loading users from database...');
+      console.log('🔄 Loading users from Google Sheets...');
       
-      const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) {
-        console.error('❌ Error loading users:', error);
-        setError(error.message);
-        return;
-      }
+      const data = await googleSheetsAPI.getUsers();
 
       const formattedUsers: User[] = data.map(user => ({
         id: user.id,
@@ -30,9 +22,9 @@ export const useUsers = () => {
         sector: user.sector || undefined,
         bio: user.bio || undefined,
         avatar: user.avatar || undefined,
-        isAdmin: user.is_admin,
-        createdAt: new Date(user.created_at),
-        updatedAt: new Date(user.updated_at),
+        isAdmin: user.isAdmin,
+        createdAt: new Date(user.createdAt),
+        updatedAt: new Date(user.updatedAt),
       }));
 
       console.log('✅ Loaded users:', formattedUsers.length, 'users');
@@ -41,7 +33,7 @@ export const useUsers = () => {
       setUsers(formattedUsers);
       setError(null);
     } catch (err) {
-      console.error('❌ Unexpected error loading users:', err);
+      console.error('❌ Error loading users:', err);
       setError(err instanceof Error ? err.message : 'Erro ao carregar usuários');
     } finally {
       setLoading(false);
@@ -51,56 +43,14 @@ export const useUsers = () => {
   useEffect(() => {
     loadUsers();
 
-    // Subscribe to real-time changes with improved error handling
-    console.log('🔔 Setting up real-time subscription...');
-    
-    const subscription = supabase
-      .channel('users_realtime_channel')
-      .on('postgres_changes', 
-        { 
-          event: '*', 
-          schema: 'public', 
-          table: 'users' 
-        }, 
-        (payload) => {
-          console.log('🔔 Real-time change detected:', payload.eventType, payload);
-          
-          // Handle different types of changes
-          switch (payload.eventType) {
-            case 'INSERT':
-              console.log('➕ User inserted:', payload.new);
-              break;
-            case 'UPDATE':
-              console.log('✏️ User updated:', payload.new);
-              break;
-            case 'DELETE':
-              console.log('🗑️ User deleted:', payload.old);
-              break;
-          }
-          
-          // Always reload users to ensure consistency
-          console.log('🔄 Reloading users due to real-time change...');
-          loadUsers();
-        }
-      )
-      .subscribe((status) => {
-        console.log('📡 Real-time subscription status:', status);
-        
-        if (status === 'SUBSCRIBED') {
-          console.log('✅ Successfully subscribed to real-time updates');
-        } else if (status === 'CHANNEL_ERROR') {
-          console.error('❌ Real-time subscription error - continuing without real-time updates');
-          // Don't throw error, just log it and continue
-        } else if (status === 'TIMED_OUT') {
-          console.error('⏰ Real-time subscription timed out - continuing without real-time updates');
-        } else if (status === 'CLOSED') {
-          console.log('🔒 Real-time subscription closed');
-        }
-      });
+    // Set up polling for updates (since Google Sheets doesn't have real-time updates)
+    const interval = setInterval(() => {
+      console.log('🔄 Polling for user updates...');
+      loadUsers();
+    }, 30000); // Poll every 30 seconds
 
     return () => {
-      console.log('🔌 Unsubscribing from real-time updates');
-      subscription.unsubscribe();
+      clearInterval(interval);
     };
   }, []);
 
